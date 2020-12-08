@@ -152,6 +152,31 @@ ipcMain.on("exit-app", (event, flag) => {
     app.quit();
 });
 
+function createTempFile(basename, contents) {
+    function randChar(len) {
+        return Math.floor(Math.random() * Math.pow(36, len)).toString(36);
+    }
+    let tempname = basename + ".tmp" + randChar(6);
+    for (let attempts = 3; attempts > 0; attempts--) {
+        try {
+            fs.writeFileSync(tempname, contents, {flag: 'wx'});
+            return tempname;
+        } catch (ex) {
+            if (ex.code === 'EEXIST') {
+                tempname += randChar(1);
+                continue;
+            }
+            try {
+                fs.unlinkSync(tempname);
+            } catch (e) {
+                console.log("Failed to remove temp file", tempname, e);
+            }
+            throw ex;
+        }
+    }
+    throw new Error("Failed to create temp file for " + basename);
+}
+
 function performFsJob(job) {
     const fname = path.join(storePath, job.filename);
 
@@ -180,7 +205,17 @@ function performFsJob(job) {
         }
         case "write": {
             try {
-                fs.writeFileSync(fname, job.contents);
+                const tmpfname = createTempFile(fname, job.contents);
+                try {
+                    fs.renameSync(tmpfname, fname);
+                } catch (ex) {
+                    try {
+                        fs.unlinkSync(tmpfname);
+                    } catch (e) {
+                        console.log("Failed to remove temp file", tmpfname, e);
+                    }
+                    throw ex;
+                }
             } catch (ex) {
                 return {
                     error: ex,
